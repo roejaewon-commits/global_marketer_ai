@@ -16,7 +16,7 @@ from docx.shared import Pt
 # 0. 초기 설정
 # ---------------------------------------------------------
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-st.set_page_config(page_title="AI 글로벌 마케터 (V11.0)", layout="wide")
+st.set_page_config(page_title="AI 글로벌 마케터 (V11.1)", layout="wide")
 
 def get_secret(key: str) -> str:
     val = st.secrets.get(key, "")
@@ -56,7 +56,7 @@ if "inputs" not in st.session_state:
         "company_name": "숭실시스템즈",
         "country_input": "인도네시아", 
         "real_code": "ID",           
-        "keyword": "Food Packaging", # [수정] 기본 키워드 변경 (데이터 확보용)
+        "keyword": "Food Packaging", 
         "budget": 5000000
     }
 
@@ -64,9 +64,7 @@ if "vision_analysis" not in st.session_state: st.session_state.vision_analysis =
 if "market_data" not in st.session_state: st.session_state.market_data = {"macro": {}, "report": "", "trends": pd.DataFrame()}
 if "final_report" not in st.session_state: st.session_state.final_report = ""
 if "emails" not in st.session_state: st.session_state.emails = {"KR": "", "EN": ""}
-if "sns_content" not in st.session_state: 
-    # [수정] 4가지 버전 저장을 위한 공간 확보
-    st.session_state.sns_content = {"Insta_KR": "", "Insta_EN": "", "Linked_KR": "", "Linked_EN": ""}
+if "sns_content" not in st.session_state: st.session_state.sns_content = {"Insta_KR": "", "Insta_EN": "", "Linked_KR": "", "Linked_EN": ""}
 
 def create_word_docx(company, country, vision, report, emails):
     doc = Document()
@@ -77,7 +75,7 @@ def create_word_docx(company, country, vision, report, emails):
     doc.add_heading(f'{company} - {country} 진출 전략 보고서', 0)
     doc.add_paragraph(f"생성 일자: {dt.date.today()}")
     
-    doc.add_heading('1. 제품 및 내부 역량', level=1)
+    doc.add_heading('1. 제품 및 내부 역량 정밀 분석', level=1)
     doc.add_paragraph(vision)
     
     doc.add_heading('2. 시장 진입 전략', level=1)
@@ -95,7 +93,7 @@ def create_word_docx(company, country, vision, report, emails):
     return bio
 
 # ---------------------------------------------------------
-# 3. 분석 및 생성 모듈
+# 3. 분석 및 생성 모듈 (Vision 프롬프트 강화됨!)
 # ---------------------------------------------------------
 def analyze_pdf_with_vision(uploaded_file):
     if not OPENAI_API_KEY: return "API Key 필요"
@@ -109,12 +107,28 @@ def analyze_pdf_with_vision(uploaded_file):
         base64_images.append(base64.b64encode(img_data).decode('utf-8'))
     
     client = OpenAI(api_key=OPENAI_API_KEY)
+    
+    # [수정됨] 디테일 강화 프롬프트
     prompt = """
-    당신은 수석 마케터입니다. 카탈로그(PDF)를 시각적으로 분석하세요.
-    1. **핵심 제품**: 무엇을 파는가?
-    2. **USP (차별점)**: 경쟁사 대비 기술적/디자인적 강점
-    3. **고객 베네핏**: 구매 시 고객이 얻는 이득
+    당신은 20년 경력의 수석 기술 마케터입니다. 업로드된 카탈로그(PDF)를 정밀 분석하여 보고서를 작성하세요.
+    단순한 요약이 아니라, 카탈로그에 있는 **구체적인 스펙, 수치, 인증 마크, 기술 용어**를 인용하여 전문성 있게 작성해야 합니다.
+    
+    [분석 항목]
+    1. **핵심 제품 포트폴리오 (Core Products)**:
+       - 주요 제품 라인업을 나열하고 각각의 특징을 구체적으로 설명하세요.
+    2. **기술적 차별점 (Technical USP)**:
+       - 경쟁사 대비 돋보이는 기술, 특허, 정밀도, 속도, 소재(SUS 등) 등의 스펙을 찾아내어 강조하세요.
+       - HACCP, GMP 등 인증 마크가 보이면 반드시 언급하세요.
+    3. **고객 도입 효과 (Customer Benefits)**:
+       - 이 기계를 도입했을 때 공장이 얻게 되는 이득(생산성 향상, 이물질 사고 예방 등)을 구체적으로 서술하세요.
+    4. **추천 타겟 산업**:
+       - 이 제품이 가장 필요한 산업군(예: 제과, 육가공, 수산물 등)을 추론하세요.
+       
+    [작성 지침]
+    - 각 항목당 최소 3~5문장으로 상세하게 작성하세요.
+    - 톤앤매너: 신뢰감 있고 전문적인 비즈니스 어조.
     """
+    
     payload = [{"type": "text", "text": prompt}]
     for b64 in base64_images:
         payload.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
@@ -189,13 +203,9 @@ def generate_email(inputs, vision, lang):
     res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
     return res.choices[0].message.content
 
-# [수정] SNS 생성 함수: 언어 설정을 확실하게 적용
 def generate_sns(inputs, vision, plat, lang):
     client = OpenAI(api_key=OPENAI_API_KEY)
-    
-    # 언어 강제 지침 추가
     lang_instruction = "MUST be written in KOREAN." if lang == "Korean" else "MUST be written in ENGLISH."
-    
     style = "감성적이고 트렌디한 인스타그램 스타일 (해시태그 포함)" if plat == "Instagram" else "전문적인 링크드인 비즈니스 스타일"
     
     prompt = f"""
@@ -203,7 +213,6 @@ def generate_sns(inputs, vision, plat, lang):
     Target Market: {inputs['country_input']}
     Product Info: {vision}
     Style: {style}
-    
     IMPORTANT: The output language {lang_instruction}
     """
     res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
@@ -212,8 +221,8 @@ def generate_sns(inputs, vision, plat, lang):
 # ---------------------------------------------------------
 # 4. 메인 UI
 # ---------------------------------------------------------
-st.title("🌏 AI 글로벌 마케터 (V11.0)")
-st.caption("SNS 다국어 생성 + 키워드 최적화 완료")
+st.title("🌏 AI 글로벌 마케터 (V11.1)")
+st.caption("Vision 분석 디테일 강화 + SNS 다국어 + 키워드 최적화")
 
 with st.sidebar:
     st.header("⚙️ 설정")
@@ -230,8 +239,7 @@ with st.sidebar:
         st.error("⚠️ 국가 식별 불가")
         st.session_state.inputs["real_code"] = ""
 
-    # [수정] 기본값 'Food Packaging' 적용
-    st.session_state.inputs["keyword"] = st.text_input("트렌드 키워드 (영어)", st.session_state.inputs["keyword"], help="구글 트렌드 검색용 (광범위한 키워드 권장)")
+    st.session_state.inputs["keyword"] = st.text_input("트렌드 키워드 (영어)", st.session_state.inputs["keyword"], help="구글 트렌드 검색용")
     
     budget_val = st.number_input("마케팅 예산", value=st.session_state.inputs["budget"], step=1000000)
     st.session_state.inputs["budget"] = budget_val
@@ -242,12 +250,12 @@ with st.sidebar:
 tabs = st.tabs(["1️⃣ 제품 분석", "2️⃣ 시장 인텔리전스", "3️⃣ 전략 보고서", "4️⃣ 영업 메일", "5️⃣ SNS 콘텐츠", "📥 다운로드"])
 
 with tabs[0]:
-    st.subheader("👁️ Vision 제품 분석")
+    st.subheader("👁️ Vision 제품 분석 (Deep Analysis)")
     f = st.file_uploader("PDF 업로드", type="pdf")
-    if f and st.button("분석 시작"):
-        with st.spinner("분석 중..."):
+    if f and st.button("정밀 분석 시작"):
+        with st.spinner("AI가 카탈로그를 정밀 분석 중입니다 (시간이 조금 더 소요될 수 있습니다)..."):
             st.session_state.vision_analysis = analyze_pdf_with_vision(f)
-            st.success("완료")
+            st.success("분석 완료")
     if st.session_state.vision_analysis: st.info(st.session_state.vision_analysis)
 
 with tabs[1]:
@@ -296,37 +304,26 @@ with tabs[3]:
         with t1: st.text_area("Korean", st.session_state.emails["KR"], height=400)
         with t2: st.text_area("English", st.session_state.emails["EN"], height=400)
 
-# [수정] SNS 탭: 4개 버전 동시 생성 및 보기
 with tabs[4]:
     st.subheader("📱 SNS 콘텐츠 (다국어 지원)")
     if st.button("콘텐츠 생성 (4종)"):
-        with st.spinner("인스타그램 및 링크드인 게시물 생성 중... (한/영)"):
+        with st.spinner("인스타그램 및 링크드인 게시물 생성 중..."):
             st.session_state.sns_content["Insta_KR"] = generate_sns(st.session_state.inputs, st.session_state.vision_analysis, "Instagram", "Korean")
             st.session_state.sns_content["Insta_EN"] = generate_sns(st.session_state.inputs, st.session_state.vision_analysis, "Instagram", "English")
             st.session_state.sns_content["Linked_KR"] = generate_sns(st.session_state.inputs, st.session_state.vision_analysis, "LinkedIn", "Korean")
             st.session_state.sns_content["Linked_EN"] = generate_sns(st.session_state.inputs, st.session_state.vision_analysis, "LinkedIn", "English")
-            st.success("4가지 버전 생성 완료!")
+            st.success("완료!")
             
     if st.session_state.sns_content["Insta_KR"]:
         s1, s2 = st.tabs(["📸 Instagram", "💼 LinkedIn"])
-        
         with s1:
             c1, c2 = st.columns(2)
-            with c1: 
-                st.markdown("#### 🇰🇷 한국어 버전")
-                st.text_area("Insta KR", st.session_state.sns_content["Insta_KR"], height=400, label_visibility="collapsed")
-            with c2: 
-                st.markdown("#### 🇺🇸 English Version")
-                st.text_area("Insta EN", st.session_state.sns_content["Insta_EN"], height=400, label_visibility="collapsed")
-                
+            with c1: st.text_area("Insta KR", st.session_state.sns_content["Insta_KR"], height=400)
+            with c2: st.text_area("Insta EN", st.session_state.sns_content["Insta_EN"], height=400)
         with s2:
             c1, c2 = st.columns(2)
-            with c1: 
-                st.markdown("#### 🇰🇷 한국어 버전")
-                st.text_area("Linked KR", st.session_state.sns_content["Linked_KR"], height=400, label_visibility="collapsed")
-            with c2: 
-                st.markdown("#### 🇺🇸 English Version")
-                st.text_area("Linked EN", st.session_state.sns_content["Linked_EN"], height=400, label_visibility="collapsed")
+            with c1: st.text_area("Linked KR", st.session_state.sns_content["Linked_KR"], height=400)
+            with c2: st.text_area("Linked EN", st.session_state.sns_content["Linked_EN"], height=400)
 
 with tabs[5]:
     st.subheader("📥 결과물 다운로드")
