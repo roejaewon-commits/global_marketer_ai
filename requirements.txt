@@ -1,0 +1,10 @@
+streamlit
+openai
+pandas
+requests
+pymupdf
+duckduckgo-search
+pytrends
+python-docx
+lxml
+openpyxl
