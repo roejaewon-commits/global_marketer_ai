@@ -16,7 +16,7 @@ from docx.shared import Pt
 # 0. 초기 설정
 # ---------------------------------------------------------
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-st.set_page_config(page_title="AI 글로벌 마케터 (V11.1)", layout="wide")
+st.set_page_config(page_title="AI 글로벌 마케터 (V11.2)", layout="wide")
 
 def get_secret(key: str) -> str:
     val = st.secrets.get(key, "")
@@ -93,7 +93,7 @@ def create_word_docx(company, country, vision, report, emails):
     return bio
 
 # ---------------------------------------------------------
-# 3. 분석 및 생성 모듈 (Vision 프롬프트 강화됨!)
+# 3. 분석 및 생성 모듈
 # ---------------------------------------------------------
 def analyze_pdf_with_vision(uploaded_file):
     if not OPENAI_API_KEY: return "API Key 필요"
@@ -108,7 +108,7 @@ def analyze_pdf_with_vision(uploaded_file):
     
     client = OpenAI(api_key=OPENAI_API_KEY)
     
-    # [수정됨] 디테일 강화 프롬프트
+    # 디테일 강화 프롬프트
     prompt = """
     당신은 20년 경력의 수석 기술 마케터입니다. 업로드된 카탈로그(PDF)를 정밀 분석하여 보고서를 작성하세요.
     단순한 요약이 아니라, 카탈로그에 있는 **구체적인 스펙, 수치, 인증 마크, 기술 용어**를 인용하여 전문성 있게 작성해야 합니다.
@@ -166,16 +166,50 @@ def fetch_rich_macro_economics(country_code):
 
 def fetch_industry_report(country, keyword):
     client = OpenAI(api_key=OPENAI_API_KEY)
-    queries = [f"{country} {keyword} market size 2025", f"{country} {keyword} trends", f"top {keyword} companies in {country}"]
-    txt = ""
-    with DDGS() as ddgs:
-        for q in queries:
-            try:
-                for r in list(ddgs.text(q, max_results=2)): txt += f"- {r['title']}: {r['body']}\n"
-            except: pass
-    if not txt: return "정보 부족"
     
-    prompt = f"'{country} {keyword} 시장 리포트' 작성. 기준 연도 명시. [정보] {txt}"
+    # 1. 웹 검색 시도
+    search_txt = ""
+    try:
+        queries = [f"{country} {keyword} market size 2025", f"{country} {keyword} trends", f"top {keyword} companies in {country}"]
+        with DDGS() as ddgs:
+            for q in queries:
+                try:
+                    results = list(ddgs.text(q, max_results=2))
+                    for r in results:
+                        search_txt += f"- {r['title']}: {r['body']}\n"
+                except: pass
+    except:
+        pass # 검색 실패 시 그냥 넘어감
+    
+    # 2. 리포트 생성 (검색 결과 유무에 따라 프롬프트 분기)
+    if search_txt:
+        # 검색 성공 시: 검색 내용을 바탕으로 작성
+        prompt = f"""
+        당신은 시장 분석가입니다. 아래 검색 정보를 바탕으로 '{country} {keyword} 산업 리포트'를 작성하세요.
+        [검색 정보]
+        {search_txt}
+        [목차]
+        1. 시장 규모 및 전망
+        2. 최신 트렌드
+        3. 경쟁 현황
+        """
+    else:
+        # [수정됨] 검색 실패(차단) 시: AI 내부 지식으로 작성 (Fallback)
+        prompt = f"""
+        현재 외부 검색이 불가능하므로, 당신의 내부 지식(Knowledge Base)을 활용하여
+        '{country} {keyword} 산업'에 대한 심층 리포트를 작성하세요.
+        
+        [지시사항]
+        - 최근(2023~2024) 시장 동향을 추론하여 작성할 것.
+        - 일반적인 시장 통념과 트렌드를 반영할 것.
+        - 보고서 상단에 "(※ 실시간 검색 지연으로 AI 내부 데이터를 기반으로 작성되었습니다.)"라고 표기할 것.
+        
+        [목차]
+        1. 시장 규모 및 전망 (추정)
+        2. 주요 트렌드
+        3. 진출 조언
+        """
+
     res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
     return res.choices[0].message.content
 
@@ -221,8 +255,8 @@ def generate_sns(inputs, vision, plat, lang):
 # ---------------------------------------------------------
 # 4. 메인 UI
 # ---------------------------------------------------------
-st.title("🌏 AI 글로벌 마케터 (V11.1)")
-st.caption("Vision 분석 디테일 강화 + SNS 다국어 + 키워드 최적화")
+st.title("🌏 AI 글로벌 마케터 (V11.2)")
+st.caption("검색 안전장치(Fallback) + 정밀 분석 탑재")
 
 with st.sidebar:
     st.header("⚙️ 설정")
@@ -253,7 +287,7 @@ with tabs[0]:
     st.subheader("👁️ Vision 제품 분석 (Deep Analysis)")
     f = st.file_uploader("PDF 업로드", type="pdf")
     if f and st.button("정밀 분석 시작"):
-        with st.spinner("AI가 카탈로그를 정밀 분석 중입니다 (시간이 조금 더 소요될 수 있습니다)..."):
+        with st.spinner("AI가 카탈로그를 정밀 분석 중입니다..."):
             st.session_state.vision_analysis = analyze_pdf_with_vision(f)
             st.success("분석 완료")
     if st.session_state.vision_analysis: st.info(st.session_state.vision_analysis)
