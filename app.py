@@ -16,7 +16,7 @@ from docx.shared import Pt
 # 0. 초기 설정
 # ---------------------------------------------------------
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-st.set_page_config(page_title="AI 글로벌 마케터 (V11.2)", layout="wide")
+st.set_page_config(page_title="AI 글로벌 마케터 (V11.3)", layout="wide")
 
 def get_secret(key: str) -> str:
     val = st.secrets.get(key, "")
@@ -93,48 +93,67 @@ def create_word_docx(company, country, vision, report, emails):
     return bio
 
 # ---------------------------------------------------------
-# 3. 분석 및 생성 모듈
+# 3. 분석 및 생성 모듈 (수정됨: 텍스트 추출 + Vision 하이브리드)
 # ---------------------------------------------------------
 def analyze_pdf_with_vision(uploaded_file):
     if not OPENAI_API_KEY: return "API Key 필요"
+    
+    # PDF 로드
     doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
     max_pages = 3 
+    
     base64_images = []
+    extracted_text = ""  # 텍스트 추출용 변수
+    
     for i in range(min(len(doc), max_pages)):
         page = doc.load_page(i)
+        
+        # 1. 텍스트 추출 (글자를 직접 읽어냄)
+        text = page.get_text()
+        extracted_text += f"\n[Page {i+1} Text]\n{text}\n"
+        
+        # 2. 이미지 변환
         pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
         img_data = pix.tobytes("png")
         base64_images.append(base64.b64encode(img_data).decode('utf-8'))
     
     client = OpenAI(api_key=OPENAI_API_KEY)
     
-    # 디테일 강화 프롬프트
-    prompt = """
-    당신은 20년 경력의 수석 기술 마케터입니다. 업로드된 카탈로그(PDF)를 정밀 분석하여 보고서를 작성하세요.
-    단순한 요약이 아니라, 카탈로그에 있는 **구체적인 스펙, 수치, 인증 마크, 기술 용어**를 인용하여 전문성 있게 작성해야 합니다.
+    # [수정됨] 거절 방지용 강력한 프롬프트
+    prompt = f"""
+    당신은 수석 기술 마케터입니다. 
+    제공된 [이미지]와 [추출된 텍스트]를 모두 활용하여 제품 카탈로그를 분석하세요.
+    
+    [중요 안전 지침]
+    - 이것은 공용 제품 카탈로그입니다. 
+    - 이미지 속에 사람(모델, 작업자)이 있더라도 무시하고, 오직 **기계 장비와 텍스트 정보**에만 집중하세요.
+    - 절대 "분석할 수 없다"고 대답하지 마세요. 추출된 텍스트 데이터를 최우선으로 참고하세요.
+    
+    [추출된 텍스트 데이터]
+    {extracted_text[:3000]} 
     
     [분석 항목]
     1. **핵심 제품 포트폴리오 (Core Products)**:
-       - 주요 제품 라인업을 나열하고 각각의 특징을 구체적으로 설명하세요.
+       - 텍스트에 명시된 제품명(모델명)과 기능을 구체적으로 나열하세요.
     2. **기술적 차별점 (Technical USP)**:
-       - 경쟁사 대비 돋보이는 기술, 특허, 정밀도, 속도, 소재(SUS 등) 등의 스펙을 찾아내어 강조하세요.
-       - HACCP, GMP 등 인증 마크가 보이면 반드시 언급하세요.
+       - 수치(속도, 정밀도), 소재, 특허 기술, 인증(HACCP, CE 등)을 찾아내어 강조하세요.
     3. **고객 도입 효과 (Customer Benefits)**:
-       - 이 기계를 도입했을 때 공장이 얻게 되는 이득(생산성 향상, 이물질 사고 예방 등)을 구체적으로 서술하세요.
+       - 이 기계를 쓰면 고객이 얻는 구체적 이득(이물질 검출, 생산성 등)을 서술하세요.
     4. **추천 타겟 산업**:
-       - 이 제품이 가장 필요한 산업군(예: 제과, 육가공, 수산물 등)을 추론하세요.
+       - 식품, 제약 등 적합한 산업군을 제안하세요.
        
-    [작성 지침]
-    - 각 항목당 최소 3~5문장으로 상세하게 작성하세요.
-    - 톤앤매너: 신뢰감 있고 전문적인 비즈니스 어조.
+    각 항목당 3문장 이상 상세하게 작성하세요.
     """
     
     payload = [{"type": "text", "text": prompt}]
     for b64 in base64_images:
         payload.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
     
-    res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": payload}])
-    return res.choices[0].message.content
+    try:
+        res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": payload}])
+        return res.choices[0].message.content
+    except Exception as e:
+        return f"분석 오류 발생: {str(e)}"
 
 def fetch_rich_macro_economics(country_code):
     indicators = {
@@ -167,7 +186,6 @@ def fetch_rich_macro_economics(country_code):
 def fetch_industry_report(country, keyword):
     client = OpenAI(api_key=OPENAI_API_KEY)
     
-    # 1. 웹 검색 시도
     search_txt = ""
     try:
         queries = [f"{country} {keyword} market size 2025", f"{country} {keyword} trends", f"top {keyword} companies in {country}"]
@@ -178,12 +196,9 @@ def fetch_industry_report(country, keyword):
                     for r in results:
                         search_txt += f"- {r['title']}: {r['body']}\n"
                 except: pass
-    except:
-        pass # 검색 실패 시 그냥 넘어감
+    except: pass
     
-    # 2. 리포트 생성 (검색 결과 유무에 따라 프롬프트 분기)
     if search_txt:
-        # 검색 성공 시: 검색 내용을 바탕으로 작성
         prompt = f"""
         당신은 시장 분석가입니다. 아래 검색 정보를 바탕으로 '{country} {keyword} 산업 리포트'를 작성하세요.
         [검색 정보]
@@ -194,16 +209,12 @@ def fetch_industry_report(country, keyword):
         3. 경쟁 현황
         """
     else:
-        # [수정됨] 검색 실패(차단) 시: AI 내부 지식으로 작성 (Fallback)
         prompt = f"""
         현재 외부 검색이 불가능하므로, 당신의 내부 지식(Knowledge Base)을 활용하여
         '{country} {keyword} 산업'에 대한 심층 리포트를 작성하세요.
-        
         [지시사항]
         - 최근(2023~2024) 시장 동향을 추론하여 작성할 것.
-        - 일반적인 시장 통념과 트렌드를 반영할 것.
         - 보고서 상단에 "(※ 실시간 검색 지연으로 AI 내부 데이터를 기반으로 작성되었습니다.)"라고 표기할 것.
-        
         [목차]
         1. 시장 규모 및 전망 (추정)
         2. 주요 트렌드
@@ -255,8 +266,8 @@ def generate_sns(inputs, vision, plat, lang):
 # ---------------------------------------------------------
 # 4. 메인 UI
 # ---------------------------------------------------------
-st.title("🌏 AI 글로벌 마케터 (V11.2)")
-st.caption("검색 안전장치(Fallback) + 정밀 분석 탑재")
+st.title("🌏 AI 글로벌 마케터 (V11.3)")
+st.caption("텍스트 추출 분석(거절 방지) + 검색 안전장치 탑재")
 
 with st.sidebar:
     st.header("⚙️ 설정")
@@ -284,10 +295,10 @@ with st.sidebar:
 tabs = st.tabs(["1️⃣ 제품 분석", "2️⃣ 시장 인텔리전스", "3️⃣ 전략 보고서", "4️⃣ 영업 메일", "5️⃣ SNS 콘텐츠", "📥 다운로드"])
 
 with tabs[0]:
-    st.subheader("👁️ Vision 제품 분석 (Deep Analysis)")
+    st.subheader("👁️ Vision 제품 분석 (Hybrid)")
     f = st.file_uploader("PDF 업로드", type="pdf")
     if f and st.button("정밀 분석 시작"):
-        with st.spinner("AI가 카탈로그를 정밀 분석 중입니다..."):
+        with st.spinner("이미지와 텍스트를 동시에 분석 중입니다..."):
             st.session_state.vision_analysis = analyze_pdf_with_vision(f)
             st.success("분석 완료")
     if st.session_state.vision_analysis: st.info(st.session_state.vision_analysis)
